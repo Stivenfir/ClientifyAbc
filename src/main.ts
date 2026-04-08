@@ -1,13 +1,14 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule } from '@nestjs/swagger';
-import { AppModule } from './app.module';
-import { swaggerConfig } from './config/swagger.config';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { swaggerConfig } from './config/swagger.config';
+import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const logger = new Logger('Bootstrap');
 
   app.setGlobalPrefix('api');
 
@@ -16,6 +17,7 @@ async function bootstrap() {
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: true,
+      transformOptions: { enableImplicitConversion: true },
     }),
   );
 
@@ -27,11 +29,11 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('docs', app, document);
 
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT ?? 3000;
   await app.listen(port);
 
-  console.log(`API corriendo en http://localhost:${port}`);
-  console.log(`Swagger en http://localhost:${port}/docs`);
+  logger.log(`API corriendo en http://localhost:${port}/api`);
+  logger.log(`Swagger en http://localhost:${port}/docs`);
 }
 
 bootstrap();
