@@ -12,6 +12,7 @@ import { CreateCompanyDto, UpdateCompanyDto } from './dto/company.dto';
 import { CreateContactDto, UpdateContactDto } from './dto/contact.dto';
 import { CreateDealDto, UpdateDealDto } from './dto/deal.dto';
 import { ListQueryDto } from './dto/list-query.dto';
+import { OpportunityFilterDto } from './dto/opportunity-filter.dto';
 import { CreatePipelineDto } from './dto/pipeline.dto';
 import {
   ClientifyContact,
@@ -24,6 +25,14 @@ import { ClientifyMapper } from './mappers/clientify.mapper';
 export class ClientifyService {
   private readonly baseUrl: string;
   private readonly token: string;
+  private readonly pipelineResolveCache = new Map<
+    string,
+    { pipelineId: number; pipelineStageId: number; expiresAt: number }
+  >();
+  private readonly contactCache = new Map<
+    number,
+    { data: Awaited<ReturnType<ClientifyService['getContactById']>>; expiresAt: number }
+  >();
 
   constructor(
     private readonly httpService: HttpService,
@@ -97,6 +106,34 @@ export class ClientifyService {
       previous: response.previous ?? null,
       results: response.results ?? [],
     };
+  }
+
+  private toSearchableText(value: unknown) {
+    return String(value ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  private getCacheKey(pipeline: string, stage: string) {
+    return `${this.toSearchableText(pipeline)}::${this.toSearchableText(stage)}`;
+  }
+
+  private async getContactByIdCached(contactId: number) {
+    const now = Date.now();
+    const cached = this.contactCache.get(contactId);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
+    const data = await this.getContactById(contactId);
+    this.contactCache.set(contactId, {
+      data,
+      expiresAt: now + 5 * 60 * 1000,
+    });
+
+    return data;
   }
 
   getHealth() {
@@ -305,5 +342,159 @@ export class ClientifyService {
       this.request('GET', '/companies/tags/'),
       this.request('GET', '/deals/tags/'),
     ]).then(([contacts, companies, deals]) => ({ contacts, companies, deals }));
+  }
+
+  async getClientsWithOpenOpportunities(filter: OpportunityFilterDto) {
+    const pipelineNeedle = this.toSearchableText(filter.pipeline);
+    const stageNeedle = this.toSearchableText(filter.stage);
+    const resolveCacheKey = this.getCacheKey(filter.pipeline, filter.stage);
+    const now = Date.now();
+    let resolvedIds = this.pipelineResolveCache.get(resolveCacheKey);
+
+    if (!resolvedIds || resolvedIds.expiresAt <= now) {
+      const pipelinesResponse = await this.getDealPipelines({
+        page: 1,
+        pageSize: filter.pageSize,
+      });
+
+      const pipelineResults = Array.isArray((pipelinesResponse as { results?: unknown[] }).results)
+        ? ((pipelinesResponse as { results?: Array<Record<string, unknown>> }).results ?? [])
+        : (Array.isArray(pipelinesResponse)
+            ? (pipelinesResponse as Array<Record<string, unknown>>)
+            : []);
+
+      const matchedPipeline = pipelineResults.find(
+        (pipeline) => this.toSearchableText(pipeline.name).includes(pipelineNeedle),
+      );
+
+      if (!matchedPipeline) {
+        return {
+          criteria: {
+            pipeline: filter.pipeline,
+            stage: filter.stage,
+            pipelineMatched: false,
+            stageMatched: false,
+          },
+          totalDealsMatched: 0,
+          totalClientsMatched: 0,
+          clients: [],
+        };
+      }
+
+      const stages = Array.isArray(matchedPipeline.stages)
+        ? (matchedPipeline.stages as Array<Record<string, unknown>>)
+        : [];
+
+      const matchedStage = stages.find((stage) =>
+        this.toSearchableText(stage.name).includes(stageNeedle),
+      );
+
+      if (!matchedStage) {
+        return {
+          criteria: {
+            pipeline: filter.pipeline,
+            stage: filter.stage,
+            pipelineId: matchedPipeline.id ?? null,
+            pipelineMatched: true,
+            stageMatched: false,
+          },
+          totalDealsMatched: 0,
+          totalClientsMatched: 0,
+          clients: [],
+        };
+      }
+
+      resolvedIds = {
+        pipelineId: Number(matchedPipeline.id),
+        pipelineStageId: Number(matchedStage.id),
+        expiresAt: now + 10 * 60 * 1000,
+      };
+      this.pipelineResolveCache.set(resolveCacheKey, resolvedIds);
+    }
+
+    const filteredDeals: Array<ReturnType<typeof ClientifyMapper.toDealSummary>> = [];
+    let page = 1;
+    let hasNext = true;
+
+    while (hasNext) {
+      const providerPage = await this.request<ClientifyPaginatedResponse<ClientifyDeal>>(
+        'GET',
+        '/deals/',
+        {
+          params: {
+            fields: CLIENTIFY_DEFAULT_FIELDS.deals,
+            page,
+            page_size: filter.pageSize,
+            order_by: '-modified',
+            pipeline_id: resolvedIds.pipelineId,
+            pipeline_stage_id: resolvedIds.pipelineStageId,
+            status: 1,
+          },
+        },
+      );
+
+      const mappedDeals = (providerPage.results ?? []).map((deal) =>
+        ClientifyMapper.toDealSummary(deal),
+      );
+      filteredDeals.push(
+        ...mappedDeals.filter(
+          (deal) =>
+            deal.pipelineId === resolvedIds.pipelineId &&
+            deal.pipelineStageId === resolvedIds.pipelineStageId &&
+            Number(deal.status) === 1 &&
+            Number.isFinite(deal.contactId),
+        ),
+      );
+
+      hasNext = Boolean(providerPage.next);
+      page += 1;
+    }
+
+    const uniqueContactIds = Array.from(
+      new Set(
+        filteredDeals
+          .map((deal) => deal.contactId)
+          .filter((contactId): contactId is number => Number.isFinite(contactId)),
+      ),
+    );
+
+    const contacts: Array<Awaited<ReturnType<ClientifyService['getContactById']>> | null> = [];
+    const batchSize = 10;
+    for (let i = 0; i < uniqueContactIds.length; i += batchSize) {
+      const chunk = uniqueContactIds.slice(i, i + batchSize);
+      const chunkResults = await Promise.all(
+        chunk.map(async (contactId) => {
+          try {
+            return await this.getContactByIdCached(contactId);
+          } catch {
+            return null;
+          }
+        }),
+      );
+      contacts.push(...chunkResults);
+    }
+
+    const contactMap = new Map(
+      contacts
+        .filter((contact): contact is NonNullable<typeof contact> => Boolean(contact))
+        .map((contact) => [contact.id, contact]),
+    );
+
+    return {
+      criteria: {
+        pipeline: filter.pipeline,
+        stage: filter.stage,
+        pipelineId: resolvedIds.pipelineId,
+        pipelineStageId: resolvedIds.pipelineStageId,
+      },
+      totalDealsMatched: filteredDeals.length,
+      totalClientsMatched: contactMap.size,
+      clients: Array.from(contactMap.values()).map((client) => ({
+        ...client,
+        openOpportunities: filteredDeals.filter(
+          (deal) => deal.contactId === client.id,
+        ),
+      })),
+    };
   }
 }
