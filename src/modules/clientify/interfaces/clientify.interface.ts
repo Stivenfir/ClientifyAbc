@@ -2,32 +2,49 @@ export interface ClientifyPaginatedResponse<T> {
   count?: number;
   next?: string | null;
   previous?: string | null;
+  page?: number;
+  page_size?: number;
   results?: T[];
 }
 
-export interface ClientifyContact {
+export interface ClientifyBaseEntity {
   id: number;
+  [key: string]: unknown;
+}
+
+export interface ClientifyContact extends ClientifyBaseEntity {
   first_name?: string;
   last_name?: string;
-  status?: string;
-  title?: string;
-  company?: string;
+  full_name?: string;
+  email?: string;
+  phone?: string;
+  emails?: Array<{ email: string; type?: number }>;
+  phones?: Array<{ phone: string; type?: number }>;
   company_id?: number;
   company_name?: string;
-  emails?: Array<{ email: string; type: number }>;
-  phones?: Array<{ phone: string; type: number }>;
+  status?: string;
+  title?: string;
   created?: string;
-  picture_url?: string;
-  description?: string;
   remarks?: string;
   summary?: string;
 }
 
-export interface ClientifyDeal {
-  id: number;
+export interface ClientifyDeal extends ClientifyBaseEntity {
   name?: string;
-  status?: number | string;
   amount?: string;
-  stage?: number;
+  currency?: string;
+  status?: string | number;
+  status_desc?: string;
+  probability?: number;
+  pipeline_id?: number;
+  pipeline?: string;
+  pipeline_stage_id?: number;
+  pipeline_stage?: string;
+  pipeline_stage_desc?: string;
   expected_closed_date?: string;
+  actual_closed_date?: string;
+  contact_id?: number;
+  company_id?: number;
+  deal_source?: string;
+  custom_fields?: unknown[];
 }

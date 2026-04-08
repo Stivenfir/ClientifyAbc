@@ -6,16 +6,16 @@ export class ClientifyMapper {
       id: contact.id,
       firstName: contact.first_name ?? '',
       lastName: contact.last_name ?? '',
-      fullName: `${contact.first_name ?? ''} ${contact.last_name ?? ''}`.trim(),
-      company: contact.company_name ?? contact.company ?? null,
+      fullName:
+        contact.full_name ??
+        `${contact.first_name ?? ''} ${contact.last_name ?? ''}`.trim(),
+      email: contact.email ?? contact.emails?.[0]?.email ?? null,
+      phone: contact.phone ?? contact.phones?.[0]?.phone ?? null,
       companyId: contact.company_id ?? null,
+      companyName: contact.company_name ?? null,
       status: contact.status ?? null,
       title: contact.title ?? null,
-      email: contact.emails?.[0]?.email ?? null,
-      phone: contact.phones?.[0]?.phone ?? null,
       created: contact.created ?? null,
-      pictureUrl: contact.picture_url ?? null,
-      description: contact.description ?? null,
       remarks: contact.remarks ?? null,
       summary: contact.summary ?? null,
     };
@@ -25,10 +25,22 @@ export class ClientifyMapper {
     return {
       id: deal.id,
       name: deal.name ?? '',
-      status: deal.status ?? null,
       amount: deal.amount ?? null,
-      stage: deal.stage ?? null,
+      currency: deal.currency ?? null,
+      status: deal.status ?? null,
+      statusDesc: deal.status_desc ?? null,
+      probability: deal.probability ?? null,
+      pipelineId: deal.pipeline_id ?? null,
+      pipeline: deal.pipeline ?? null,
+      pipelineStageId: deal.pipeline_stage_id ?? null,
+      pipelineStage: deal.pipeline_stage ?? null,
+      pipelineStageDesc: deal.pipeline_stage_desc ?? null,
       expectedClosedDate: deal.expected_closed_date ?? null,
+      actualClosedDate: deal.actual_closed_date ?? null,
+      contactId: deal.contact_id ?? null,
+      companyId: deal.company_id ?? null,
+      dealSource: deal.deal_source ?? null,
+      customFields: deal.custom_fields ?? [],
     };
   }
 }

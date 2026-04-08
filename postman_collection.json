@@ -1,0 +1,66 @@
+{
+  "info": {
+    "name": "Clientify Corporate Internal API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api" },
+    { "key": "apiKey", "value": "replace-internal-key" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "x-api-key", "value": "{{apiKey}}" }],
+        "url": "{{baseUrl}}/clientify/health"
+      }
+    },
+    {
+      "name": "Me",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "x-api-key", "value": "{{apiKey}}" }],
+        "url": "{{baseUrl}}/clientify/me"
+      }
+    },
+    {
+      "name": "List Contacts",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "x-api-key", "value": "{{apiKey}}" }],
+        "url": "{{baseUrl}}/clientify/contacts?page=1&pageSize=25&query=abc"
+      }
+    },
+    {
+      "name": "Create Contact",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "x-api-key", "value": "{{apiKey}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/clientify/contacts",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"first_name\": \"Manley\",\n  \"last_name\": \"Lueilwitz\",\n  \"email\": \"Kale84@yahoo.com\",\n  \"phone\": \"47-737-738-2387\",\n  \"status\": \"warm-lead\",\n  \"title\": \"National Research Agent\",\n  \"company\": \"Cormier - Abshire\",\n  \"remarks\": \"Just remarks\",\n  \"summary\": \"Summary for the contact\",\n  \"tags\": [\"test\"],\n  \"gdpr_accept\": true\n}"
+        }
+      }
+    },
+    {
+      "name": "Create Deal",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "x-api-key", "value": "{{apiKey}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/clientify/deals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"owner\": 1,\n  \"name\": \"Nuevo deal corporativo\",\n  \"amount\": \"22.33\",\n  \"currency\": \"COP\",\n  \"pipeline_id\": 12,\n  \"pipeline_stage_desc\": \"New Stage after update\",\n  \"expected_closed_date\": \"2026-04-01\",\n  \"contact_id\": 2829,\n  \"company_id\": 34,\n  \"deal_source\": \"10\",\n  \"involved_contacts_ids\": [2833, 2828, 2829],\n  \"involved_companies_ids\": [403, 401, 402],\n  \"probability\": 85\n}"
+        }
+      }
+    }
+  ]
+}
