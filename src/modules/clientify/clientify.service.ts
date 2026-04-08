@@ -5,13 +5,20 @@ import {
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
+import { AxiosError, AxiosRequestConfig, Method } from 'axios';
 import { firstValueFrom } from 'rxjs';
+import { CLIENTIFY_DEFAULT_FIELDS } from './constants/clientify.constants';
+import { CreateCompanyDto, UpdateCompanyDto } from './dto/company.dto';
+import { CreateContactDto, UpdateContactDto } from './dto/contact.dto';
+import { CreateDealDto, UpdateDealDto } from './dto/deal.dto';
+import { ListQueryDto } from './dto/list-query.dto';
+import { OpportunityFilterDto } from './dto/opportunity-filter.dto';
+import { CreatePipelineDto } from './dto/pipeline.dto';
 import {
   ClientifyContact,
   ClientifyDeal,
   ClientifyPaginatedResponse,
 } from './interfaces/clientify.interface';
-import { GetContactsDto } from './dto/get-contacts.dto';
 import { ClientifyMapper } from './mappers/clientify.mapper';
 
 @Injectable()
@@ -34,25 +41,47 @@ export class ClientifyService {
     };
   }
 
-  private async get<T>(url: string, params?: Record<string, any>): Promise<T> {
+  private normalizeListParams(query: ListQueryDto, defaultFields: string) {
+    return {
+      fields: query.fields ?? defaultFields,
+      page: query.page,
+      page_size: query.pageSize,
+      order_by: query.orderBy,
+      query: query.query,
+      created: query.created,
+      created_start: query.createdStart,
+      created_end: query.createdEnd,
+      is_filter: query.isFilter,
+    };
+  }
+
+  private async request<T>(
+    method: Method,
+    endpoint: string,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
     try {
       const response = await firstValueFrom(
-        this.httpService.get<T>(url, {
+        this.httpService.request<T>({
+          method,
+          url: `${this.baseUrl}${endpoint}`,
           headers: this.getHeaders(),
-          params,
+          ...config,
         }),
       );
 
       return response.data;
-    } catch (error: any) {
-      const status = error?.response?.status;
-      const data = error?.response?.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status;
+      const data = axiosError.response?.data;
 
       if (status) {
         throw new BadGatewayException({
-          message: 'Error al consumir Clientify',
-          clientifyStatus: status,
-          clientifyError: data,
+          message: 'Error del proveedor Clientify',
+          provider: 'clientify',
+          providerStatus: status,
+          providerError: data,
         });
       }
 
@@ -62,64 +91,326 @@ export class ClientifyService {
     }
   }
 
-  async getMe() {
-  return this.get(`${this.baseUrl}/me/`, {
-    fields:
-      'url,id,username,first_name,last_name,is_staff,is_active,permissions_profile_id,country,phone,channel,inbox_user,sales_user,chat_internal_user,website,language,online_status,vacations,whatsapp_number,virtual_meeting_url,full_name,role_id,time_zone,email,company_id,company_name,currency,short_name,full_short_name,locale,date_format,hour_format,date_format_string,alt_date_format_string,datetime_format_string,time_format_template,thousand_separator,decimal_separator,currency_symbol_position,street,city,state,postal_code,name_format,is_partner_admin,is_tester,is_partner',
-  });
-}
-
-  async getContacts(filters: GetContactsDto) {
-    const fields =
-      'id,first_name,last_name,status,title,company_id,company_name,emails,phones,created';
-
-    const response = await this.get<ClientifyPaginatedResponse<ClientifyContact>>(
-      `${this.baseUrl}/contacts/`,
-      {
-        fields,
-        page: filters.page,
-        page_size: filters.pageSize,
-        order_by: filters.orderBy,
-        query: filters.query,
-      },
-    );
-
+  private normalizePaginated<T>(response: ClientifyPaginatedResponse<T>) {
     return {
       total: response.count ?? 0,
       next: response.next ?? null,
       previous: response.previous ?? null,
-      results: (response.results ?? []).map((contact) =>
-        ClientifyMapper.toContactSummary(contact),
-      ),
+      results: response.results ?? [],
     };
   }
 
-  async getContactById(contactId: number) {
-    const fields =
-      'id,owner_id,first_name,last_name,status,title,company_id,company_name,picture_url,description,remarks,summary';
-
-    const contact = await this.get<ClientifyContact>(
-      `${this.baseUrl}/contacts/${contactId}/`,
-      { fields },
-    );
-
-    return ClientifyMapper.toContactSummary(contact);
+  private toSearchableText(value: unknown) {
+    return String(value ?? '').toLowerCase().trim();
   }
 
-  async getContactDeals(contactId: number) {
-    const fields =
-      'id,owner_id,name,amount,currency,contact_id,created,modified,expected_closed_date,actual_closed_date,status,pipeline_stage,pipeline_id';
+  private isOpenStatus(
+    status: unknown,
+    statusDesc: unknown,
+    excludedStatuses: Set<string>,
+  ) {
+    const statusText = this.toSearchableText(status);
+    const statusDescText = this.toSearchableText(statusDesc);
 
-    const response = await this.get<ClientifyPaginatedResponse<ClientifyDeal>>(
-      `${this.baseUrl}/contacts/${contactId}/deals/`,
-      { fields },
+    return !excludedStatuses.has(statusText) && !excludedStatuses.has(statusDescText);
+  }
+
+  getHealth() {
+    return {
+      provider: 'clientify',
+      status: 'ok',
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  getMe() {
+    return this.request('GET', '/me/', {
+      params: { fields: CLIENTIFY_DEFAULT_FIELDS.me },
+    });
+  }
+
+  getUsers(query: ListQueryDto) {
+    return this.request('GET', '/users/', {
+      params: this.normalizeListParams(query, CLIENTIFY_DEFAULT_FIELDS.users),
+    });
+  }
+
+  async getContacts(query: ListQueryDto) {
+    const response = await this.request<ClientifyPaginatedResponse<ClientifyContact>>(
+      'GET',
+      '/contacts/',
+      {
+        params: this.normalizeListParams(query, CLIENTIFY_DEFAULT_FIELDS.contacts),
+      },
+    );
+
+    const normalized = this.normalizePaginated(response);
+    return {
+      ...normalized,
+      results: normalized.results.map((c) => ClientifyMapper.toContactSummary(c)),
+    };
+  }
+
+  getSearchContacts(query: string, listQuery: ListQueryDto) {
+    return this.getContacts({ ...listQuery, query });
+  }
+
+  async getContactById(id: number, fields?: string) {
+    const response = await this.request<ClientifyContact>(
+      'GET',
+      `/contacts/${id}/`,
+      {
+        params: { fields: fields ?? CLIENTIFY_DEFAULT_FIELDS.contactDetail },
+      },
+    );
+
+    return ClientifyMapper.toContactSummary(response);
+  }
+
+  createContact(body: CreateContactDto) {
+    const { force_insert, ...payload } = body;
+    return this.request('POST', '/contacts/', {
+      params: { force_insert },
+      data: payload,
+    });
+  }
+
+  updateContact(id: number, body: UpdateContactDto) {
+    return this.request('PUT', `/contacts/${id}/`, { data: body });
+  }
+
+  async getContactDeals(id: number, fields?: string) {
+    const response = await this.request<ClientifyPaginatedResponse<ClientifyDeal>>(
+      'GET',
+      `/contacts/${id}/deals/`,
+      { params: { fields: fields ?? CLIENTIFY_DEFAULT_FIELDS.deals } },
+    );
+
+    const normalized = this.normalizePaginated(response);
+    return {
+      ...normalized,
+      results: normalized.results.map((d) => ClientifyMapper.toDealSummary(d)),
+    };
+  }
+
+  getContactTasks(id: number, query: ListQueryDto) {
+    return this.request('GET', `/contacts/${id}/tasks/`, {
+      params: this.normalizeListParams(query, 'id,name,status,due_date'),
+    });
+  }
+
+  getContactCustomFields(id: number) {
+    return this.request('GET', `/contacts/${id}/customfields/`);
+  }
+
+  async getContactsWithDeals(query: ListQueryDto) {
+    const contacts = await this.getContacts(query);
+    const results = await Promise.all(
+      contacts.results.map(async (contact) => ({
+        ...contact,
+        deals: (await this.getContactDeals(contact.id)).results,
+      })),
+    );
+
+    return { ...contacts, results };
+  }
+
+  getCompanies(query: ListQueryDto) {
+    return this.request('GET', '/companies/', {
+      params: this.normalizeListParams(query, CLIENTIFY_DEFAULT_FIELDS.companies),
+    });
+  }
+
+  getCompanyById(id: number, fields?: string) {
+    return this.request('GET', `/companies/${id}/`, {
+      params: { fields: fields ?? CLIENTIFY_DEFAULT_FIELDS.companies },
+    });
+  }
+
+  createCompany(body: CreateCompanyDto) {
+    return this.request('POST', '/companies/', { data: body });
+  }
+
+  updateCompany(id: number, body: UpdateCompanyDto) {
+    return this.request('PUT', `/companies/${id}/`, { data: body });
+  }
+
+  getCompanySectors() {
+    return this.request('GET', '/companies/sectors/');
+  }
+
+  getCompanyTags() {
+    return this.request('GET', '/companies/tags/');
+  }
+
+  async getDeals(query: ListQueryDto) {
+    const response = await this.request<ClientifyPaginatedResponse<ClientifyDeal>>(
+      'GET',
+      '/deals/',
+      {
+        params: this.normalizeListParams(query, CLIENTIFY_DEFAULT_FIELDS.deals),
+      },
+    );
+
+    const normalized = this.normalizePaginated(response);
+    return {
+      ...normalized,
+      results: normalized.results.map((d) => ClientifyMapper.toDealSummary(d)),
+    };
+  }
+
+  async getDealById(id: number, fields?: string) {
+    const response = await this.request<ClientifyDeal>('GET', `/deals/${id}/`, {
+      params: { fields: fields ?? CLIENTIFY_DEFAULT_FIELDS.deals },
+    });
+
+    return ClientifyMapper.toDealSummary(response);
+  }
+
+  createDeal(body: CreateDealDto) {
+    return this.request('POST', '/deals/', { data: body });
+  }
+
+  updateDeal(id: number, body: UpdateDealDto) {
+    return this.request('PUT', `/deals/${id}/`, { data: body });
+  }
+
+  getDealTasks(id: number, query: ListQueryDto) {
+    return this.request('GET', `/deals/${id}/tasks/`, {
+      params: this.normalizeListParams(query, 'id,name,status,due_date'),
+    });
+  }
+
+  getDealContacts(id: number, query: ListQueryDto) {
+    return this.request('GET', `/deals/${id}/contacts/`, {
+      params: this.normalizeListParams(query, CLIENTIFY_DEFAULT_FIELDS.contacts),
+    });
+  }
+
+  getDealPipelines(query: ListQueryDto) {
+    return this.request('GET', '/deals/pipelines/', {
+      params: this.normalizeListParams(query, 'id,name,is_default,stages'),
+    });
+  }
+
+  getDealPipelineById(id: number) {
+    return this.request('GET', `/deals/pipelines/${id}/`);
+  }
+
+  createDealPipeline(body: CreatePipelineDto) {
+    return this.request('POST', '/deals/pipelines/', { data: body });
+  }
+
+  getDealTags() {
+    return this.request('GET', '/deals/tags/');
+  }
+
+  getCustomFields(query: ListQueryDto) {
+    return this.request('GET', '/customfields/', {
+      params: this.normalizeListParams(query, 'id,name,field_type,module'),
+    });
+  }
+
+  getPipelines(query: ListQueryDto) {
+    return this.getDealPipelines(query);
+  }
+
+  getTags() {
+    return Promise.all([
+      this.request('GET', '/contacts/tags/'),
+      this.request('GET', '/companies/tags/'),
+      this.request('GET', '/deals/tags/'),
+    ]).then(([contacts, companies, deals]) => ({ contacts, companies, deals }));
+  }
+
+  async getClientsWithOpenOpportunities(filter: OpportunityFilterDto) {
+    const pipelineNeedle = this.toSearchableText(filter.pipeline);
+    const stageNeedle = this.toSearchableText(filter.stage);
+    const excludedStatuses = new Set(
+      filter.excludedStatusesCsv
+        .split(',')
+        .map((item) => this.toSearchableText(item))
+        .filter(Boolean),
+    );
+
+    const mappedDeals: Array<ReturnType<typeof ClientifyMapper.toDealSummary>> = [];
+    let page = 1;
+    let hasNext = true;
+
+    while (hasNext) {
+      const response = await this.request<ClientifyPaginatedResponse<ClientifyDeal>>(
+        'GET',
+        '/deals/',
+        {
+          params: {
+            fields: CLIENTIFY_DEFAULT_FIELDS.deals,
+            page,
+            page_size: filter.pageSize,
+            order_by: '-modified',
+          },
+        },
+      );
+
+      const currentDeals = (response.results ?? []).map((deal) =>
+        ClientifyMapper.toDealSummary(deal),
+      );
+
+      mappedDeals.push(...currentDeals);
+      hasNext = Boolean(response.next);
+      page += 1;
+    }
+
+    const filteredDeals = mappedDeals.filter((deal) => {
+      const pipelineText = this.toSearchableText(deal.pipeline);
+      const stageText = this.toSearchableText(
+        deal.pipelineStageDesc ?? deal.pipelineStage,
+      );
+
+      return (
+        pipelineText.includes(pipelineNeedle) &&
+        stageText.includes(stageNeedle) &&
+        this.isOpenStatus(deal.status, deal.statusDesc, excludedStatuses)
+      );
+    });
+
+    const uniqueContactIds = Array.from(
+      new Set(
+        filteredDeals
+          .map((deal) => deal.contactId)
+          .filter((contactId): contactId is number => Number.isFinite(contactId)),
+      ),
+    );
+
+    const contacts = await Promise.all(
+      uniqueContactIds.map(async (contactId) => {
+        try {
+          return await this.getContactById(contactId);
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    const contactMap = new Map(
+      contacts
+        .filter((contact): contact is NonNullable<typeof contact> => Boolean(contact))
+        .map((contact) => [contact.id, contact]),
     );
 
     return {
-      total: response.count ?? 0,
-      results: (response.results ?? []).map((deal) =>
-        ClientifyMapper.toDealSummary(deal),
-      ),
+      criteria: {
+        pipeline: filter.pipeline,
+        stage: filter.stage,
+        excludedStatuses: Array.from(excludedStatuses),
+      },
+      totalDealsMatched: filteredDeals.length,
+      totalClientsMatched: contactMap.size,
+      clients: Array.from(contactMap.values()).map((client) => ({
+        ...client,
+        openOpportunities: filteredDeals.filter(
+          (deal) => deal.contactId === client.id,
+        ),
+      })),
     };
   }
 }
