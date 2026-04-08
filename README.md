@@ -66,6 +66,7 @@ La API interna nunca expone `CLIENTIFY_TOKEN` en responses.
 - `GET /contacts/:id/tasks`
 - `GET /contacts/:id/custom-fields`
 - `GET /contacts-with-deals`
+- `GET /clients/open-opportunities?pipeline=mudanzas&stage=estimado`
 
 ### Empresas
 
@@ -271,6 +272,15 @@ curl --location 'http://localhost:3000/api/clientify/pipelines' --header 'x-api-
 curl --location 'http://localhost:3000/api/clientify/tags' --header 'x-api-key: <API_KEY>'
 ```
 
+### 7.15 Clientes con oportunidad abierta (Pipeline Mudanzas + Etapa Estimado)
+
+```bash
+curl --location 'http://localhost:3000/api/clientify/clients/open-opportunities?pipeline=mudanzas&stage=estimado&pageSize=100' \
+--header 'x-api-key: <API_KEY>'
+```
+
+> Este endpoint resuelve primero `pipeline` y `stage` por nombre en `/deals/pipelines` y luego filtra deals por IDs reales + `status = 1` (abierta) + `contactId` no nulo.
+
 ---
 
 ## 8) Ejemplos de response normalizada
@@ -330,4 +340,3 @@ curl --location 'http://localhost:3000/api/clientify/tags' --header 'x-api-key: 
 ## 9) Postman
 
 También puedes importar el archivo `postman_collection.json` incluido en el repo.
-

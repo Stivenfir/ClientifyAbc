@@ -12,6 +12,7 @@ import { CreateCompanyDto, UpdateCompanyDto } from './dto/company.dto';
 import { CreateContactDto, UpdateContactDto } from './dto/contact.dto';
 import { CreateDealDto, UpdateDealDto } from './dto/deal.dto';
 import { ListQueryDto } from './dto/list-query.dto';
+import { OpportunityFilterDto } from './dto/opportunity-filter.dto';
 import { CreatePipelineDto } from './dto/pipeline.dto';
 import {
   ClientifyContact,
@@ -97,6 +98,14 @@ export class ClientifyService {
       previous: response.previous ?? null,
       results: response.results ?? [],
     };
+  }
+
+  private toSearchableText(value: unknown) {
+    return String(value ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
   }
 
   getHealth() {
@@ -305,5 +314,127 @@ export class ClientifyService {
       this.request('GET', '/companies/tags/'),
       this.request('GET', '/deals/tags/'),
     ]).then(([contacts, companies, deals]) => ({ contacts, companies, deals }));
+  }
+
+  async getClientsWithOpenOpportunities(filter: OpportunityFilterDto) {
+    const pipelineNeedle = this.toSearchableText(filter.pipeline);
+    const stageNeedle = this.toSearchableText(filter.stage);
+
+    const pipelinesResponse = await this.getDealPipelines({
+      page: 1,
+      pageSize: filter.pageSize,
+    });
+
+    const pipelineResults = Array.isArray((pipelinesResponse as { results?: unknown[] }).results)
+      ? ((pipelinesResponse as { results?: Array<Record<string, unknown>> }).results ?? [])
+      : (Array.isArray(pipelinesResponse)
+          ? (pipelinesResponse as Array<Record<string, unknown>>)
+          : []);
+
+    const matchedPipeline = pipelineResults.find(
+      (pipeline) => this.toSearchableText(pipeline.name).includes(pipelineNeedle),
+    );
+
+    if (!matchedPipeline) {
+      return {
+        criteria: {
+          pipeline: filter.pipeline,
+          stage: filter.stage,
+          pipelineMatched: false,
+          stageMatched: false,
+        },
+        totalDealsMatched: 0,
+        totalClientsMatched: 0,
+        clients: [],
+      };
+    }
+
+    const stages = Array.isArray(matchedPipeline.stages)
+      ? (matchedPipeline.stages as Array<Record<string, unknown>>)
+      : [];
+
+    const matchedStage = stages.find((stage) =>
+      this.toSearchableText(stage.name).includes(stageNeedle),
+    );
+
+    if (!matchedStage) {
+      return {
+        criteria: {
+          pipeline: filter.pipeline,
+          stage: filter.stage,
+          pipelineId: matchedPipeline.id ?? null,
+          pipelineMatched: true,
+          stageMatched: false,
+        },
+        totalDealsMatched: 0,
+        totalClientsMatched: 0,
+        clients: [],
+      };
+    }
+
+    const allDeals: Array<ReturnType<typeof ClientifyMapper.toDealSummary>> = [];
+    let page = 1;
+    let hasNext = true;
+
+    while (hasNext) {
+      const dealsPage = await this.getDeals({
+        page,
+        pageSize: filter.pageSize,
+        orderBy: '-modified',
+      });
+
+      allDeals.push(...dealsPage.results);
+      hasNext = Boolean(dealsPage.next);
+      page += 1;
+    }
+
+    const filteredDeals = allDeals.filter(
+      (deal) =>
+        deal.pipelineId === matchedPipeline.id &&
+        deal.pipelineStageId === matchedStage.id &&
+        Number(deal.status) === 1 &&
+        Number.isFinite(deal.contactId),
+    );
+
+    const uniqueContactIds = Array.from(
+      new Set(
+        filteredDeals
+          .map((deal) => deal.contactId)
+          .filter((contactId): contactId is number => Number.isFinite(contactId)),
+      ),
+    );
+
+    const contacts = await Promise.all(
+      uniqueContactIds.map(async (contactId) => {
+        try {
+          return await this.getContactById(contactId);
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    const contactMap = new Map(
+      contacts
+        .filter((contact): contact is NonNullable<typeof contact> => Boolean(contact))
+        .map((contact) => [contact.id, contact]),
+    );
+
+    return {
+      criteria: {
+        pipeline: filter.pipeline,
+        stage: filter.stage,
+        pipelineId: matchedPipeline.id,
+        pipelineStageId: matchedStage.id,
+      },
+      totalDealsMatched: filteredDeals.length,
+      totalClientsMatched: contactMap.size,
+      clients: Array.from(contactMap.values()).map((client) => ({
+        ...client,
+        openOpportunities: filteredDeals.filter(
+          (deal) => deal.contactId === client.id,
+        ),
+      })),
+    };
   }
 }
