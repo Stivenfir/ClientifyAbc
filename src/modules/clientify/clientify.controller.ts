@@ -15,6 +15,7 @@ import { CreateCompanyDto, UpdateCompanyDto } from './dto/company.dto';
 import { CreateContactDto, UpdateContactDto } from './dto/contact.dto';
 import { CreateDealDto, UpdateDealDto } from './dto/deal.dto';
 import { ListQueryDto } from './dto/list-query.dto';
+import { OpportunityFilterDto } from './dto/opportunity-filter.dto';
 import { CreatePipelineDto } from './dto/pipeline.dto';
 import { ClientifyService } from './clientify.service';
 
@@ -88,6 +89,15 @@ export class ClientifyController {
   @Get('contacts-with-deals')
   getContactsWithDeals(@Query() query: ListQueryDto) {
     return this.clientifyService.getContactsWithDeals(query);
+  }
+
+  @Get('clients/open-opportunities')
+  @ApiOperation({
+    summary:
+      'Clientes con oportunidad abierta en etapa objetivo y pipeline objetivo (uso Mudanzas)',
+  })
+  getClientsWithOpenOpportunities(@Query() query: OpportunityFilterDto) {
+    return this.clientifyService.getClientsWithOpenOpportunities(query);
   }
 
   @Get('companies')

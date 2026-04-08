@@ -12,6 +12,7 @@ import { CreateCompanyDto, UpdateCompanyDto } from './dto/company.dto';
 import { CreateContactDto, UpdateContactDto } from './dto/contact.dto';
 import { CreateDealDto, UpdateDealDto } from './dto/deal.dto';
 import { ListQueryDto } from './dto/list-query.dto';
+import { OpportunityFilterDto } from './dto/opportunity-filter.dto';
 import { CreatePipelineDto } from './dto/pipeline.dto';
 import {
   ClientifyContact,
@@ -97,6 +98,21 @@ export class ClientifyService {
       previous: response.previous ?? null,
       results: response.results ?? [],
     };
+  }
+
+  private toSearchableText(value: unknown) {
+    return String(value ?? '').toLowerCase().trim();
+  }
+
+  private isOpenStatus(
+    status: unknown,
+    statusDesc: unknown,
+    excludedStatuses: Set<string>,
+  ) {
+    const statusText = this.toSearchableText(status);
+    const statusDescText = this.toSearchableText(statusDesc);
+
+    return !excludedStatuses.has(statusText) && !excludedStatuses.has(statusDescText);
   }
 
   getHealth() {
@@ -305,5 +321,96 @@ export class ClientifyService {
       this.request('GET', '/companies/tags/'),
       this.request('GET', '/deals/tags/'),
     ]).then(([contacts, companies, deals]) => ({ contacts, companies, deals }));
+  }
+
+  async getClientsWithOpenOpportunities(filter: OpportunityFilterDto) {
+    const pipelineNeedle = this.toSearchableText(filter.pipeline);
+    const stageNeedle = this.toSearchableText(filter.stage);
+    const excludedStatuses = new Set(
+      filter.excludedStatusesCsv
+        .split(',')
+        .map((item) => this.toSearchableText(item))
+        .filter(Boolean),
+    );
+
+    const mappedDeals: Array<ReturnType<typeof ClientifyMapper.toDealSummary>> = [];
+    let page = 1;
+    let hasNext = true;
+
+    while (hasNext) {
+      const response = await this.request<ClientifyPaginatedResponse<ClientifyDeal>>(
+        'GET',
+        '/deals/',
+        {
+          params: {
+            fields: CLIENTIFY_DEFAULT_FIELDS.deals,
+            page,
+            page_size: filter.pageSize,
+            order_by: '-modified',
+          },
+        },
+      );
+
+      const currentDeals = (response.results ?? []).map((deal) =>
+        ClientifyMapper.toDealSummary(deal),
+      );
+
+      mappedDeals.push(...currentDeals);
+      hasNext = Boolean(response.next);
+      page += 1;
+    }
+
+    const filteredDeals = mappedDeals.filter((deal) => {
+      const pipelineText = this.toSearchableText(deal.pipeline);
+      const stageText = this.toSearchableText(
+        deal.pipelineStageDesc ?? deal.pipelineStage,
+      );
+
+      return (
+        pipelineText.includes(pipelineNeedle) &&
+        stageText.includes(stageNeedle) &&
+        this.isOpenStatus(deal.status, deal.statusDesc, excludedStatuses)
+      );
+    });
+
+    const uniqueContactIds = Array.from(
+      new Set(
+        filteredDeals
+          .map((deal) => deal.contactId)
+          .filter((contactId): contactId is number => Number.isFinite(contactId)),
+      ),
+    );
+
+    const contacts = await Promise.all(
+      uniqueContactIds.map(async (contactId) => {
+        try {
+          return await this.getContactById(contactId);
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    const contactMap = new Map(
+      contacts
+        .filter((contact): contact is NonNullable<typeof contact> => Boolean(contact))
+        .map((contact) => [contact.id, contact]),
+    );
+
+    return {
+      criteria: {
+        pipeline: filter.pipeline,
+        stage: filter.stage,
+        excludedStatuses: Array.from(excludedStatuses),
+      },
+      totalDealsMatched: filteredDeals.length,
+      totalClientsMatched: contactMap.size,
+      clients: Array.from(contactMap.values()).map((client) => ({
+        ...client,
+        openOpportunities: filteredDeals.filter(
+          (deal) => deal.contactId === client.id,
+        ),
+      })),
+    };
   }
 }
