@@ -22,7 +22,16 @@ export class OpportunityFilterDto {
   stage = 'estimado';
 
   @ApiPropertyOptional({
-    example: 100,
+    example: 'Agente',
+    description:
+      'Filtra por el valor del custom field "Tipo de operación" del deal',
+  })
+  @IsOptional()
+  @IsString()
+  operationType?: string;
+
+  @ApiPropertyOptional({
+    example: 200,
     description: 'Tamaño de página para recorrer deals',
     default: 100,
   })
@@ -30,7 +39,6 @@ export class OpportunityFilterDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(200)
   pageSize = 100;
-
 }

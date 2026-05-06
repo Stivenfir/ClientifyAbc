@@ -15,7 +15,9 @@ import { ListQueryDto } from './dto/list-query.dto';
 import { OpportunityFilterDto } from './dto/opportunity-filter.dto';
 import { CreatePipelineDto } from './dto/pipeline.dto';
 import {
+  ClientifyCompany,
   ClientifyContact,
+  ClientifyCustomField,
   ClientifyDeal,
   ClientifyPaginatedResponse,
 } from './interfaces/clientify.interface';
@@ -31,7 +33,17 @@ export class ClientifyService {
   >();
   private readonly contactCache = new Map<
     number,
-    { data: Awaited<ReturnType<ClientifyService['getContactById']>>; expiresAt: number }
+    {
+      data: Awaited<ReturnType<ClientifyService['getContactById']>>;
+      expiresAt: number;
+    }
+  >();
+  private readonly companyCache = new Map<
+    number,
+    {
+      data: ClientifyCompany;
+      expiresAt: number;
+    }
   >();
 
   constructor(
@@ -136,6 +148,72 @@ export class ClientifyService {
     return data;
   }
 
+  private async getCompanyByIdCached(companyId: number) {
+    const now = Date.now();
+    const cached = this.companyCache.get(companyId);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
+    const data = await this.getCompanyById(
+      companyId,
+      CLIENTIFY_DEFAULT_FIELDS.companyDetailWithCustomFields,
+    );
+    this.companyCache.set(companyId, {
+      data,
+      expiresAt: now + 5 * 60 * 1000,
+    });
+
+    return data;
+  }
+
+  private extractCustomFieldValue(
+    customFields: ClientifyCustomField[] | undefined,
+    fieldNames: string[],
+  ) {
+    const matchedField = (customFields ?? []).find((customField) =>
+      fieldNames.some(
+        (fieldName) =>
+          this.toSearchableText(customField.field) ===
+          this.toSearchableText(fieldName),
+      ),
+    );
+
+    if (!matchedField) {
+      return null;
+    }
+
+    const { value } = matchedField;
+    return ['string', 'number', 'boolean'].includes(typeof value)
+      ? String(value).trim()
+      : null;
+  }
+
+  private extractNitFromCompany(company: ClientifyCompany | null | undefined) {
+    if (!company) {
+      return null;
+    }
+
+    const directValue = [
+      company.taxpayer_identification_number,
+      company.nit,
+      company.tax_id,
+      company.identification,
+      company.document_number,
+      company.document,
+    ].find((value) => ['string', 'number', 'boolean'].includes(typeof value));
+
+    if (directValue !== undefined) {
+      return String(directValue).trim();
+    }
+
+    return this.extractCustomFieldValue(company.custom_fields, [
+      'NIT',
+      'Número de Documento',
+      'Numero de Documento',
+    ]);
+  }
+
   getHealth() {
     return {
       provider: 'clientify',
@@ -157,18 +235,21 @@ export class ClientifyService {
   }
 
   async getContacts(query: ListQueryDto) {
-    const response = await this.request<ClientifyPaginatedResponse<ClientifyContact>>(
-      'GET',
-      '/contacts/',
-      {
-        params: this.normalizeListParams(query, CLIENTIFY_DEFAULT_FIELDS.contacts),
-      },
-    );
+    const response = await this.request<
+      ClientifyPaginatedResponse<ClientifyContact>
+    >('GET', '/contacts/', {
+      params: this.normalizeListParams(
+        query,
+        CLIENTIFY_DEFAULT_FIELDS.contacts,
+      ),
+    });
 
     const normalized = this.normalizePaginated(response);
     return {
       ...normalized,
-      results: normalized.results.map((c) => ClientifyMapper.toContactSummary(c)),
+      results: normalized.results.map((c) =>
+        ClientifyMapper.toContactSummary(c),
+      ),
     };
   }
 
@@ -201,11 +282,11 @@ export class ClientifyService {
   }
 
   async getContactDeals(id: number, fields?: string) {
-    const response = await this.request<ClientifyPaginatedResponse<ClientifyDeal>>(
-      'GET',
-      `/contacts/${id}/deals/`,
-      { params: { fields: fields ?? CLIENTIFY_DEFAULT_FIELDS.deals } },
-    );
+    const response = await this.request<
+      ClientifyPaginatedResponse<ClientifyDeal>
+    >('GET', `/contacts/${id}/deals/`, {
+      params: { fields: fields ?? CLIENTIFY_DEFAULT_FIELDS.deals },
+    });
 
     const normalized = this.normalizePaginated(response);
     return {
@@ -238,12 +319,15 @@ export class ClientifyService {
 
   getCompanies(query: ListQueryDto) {
     return this.request('GET', '/companies/', {
-      params: this.normalizeListParams(query, CLIENTIFY_DEFAULT_FIELDS.companies),
+      params: this.normalizeListParams(
+        query,
+        CLIENTIFY_DEFAULT_FIELDS.companies,
+      ),
     });
   }
 
   getCompanyById(id: number, fields?: string) {
-    return this.request('GET', `/companies/${id}/`, {
+    return this.request<ClientifyCompany>('GET', `/companies/${id}/`, {
       params: { fields: fields ?? CLIENTIFY_DEFAULT_FIELDS.companies },
     });
   }
@@ -265,13 +349,11 @@ export class ClientifyService {
   }
 
   async getDeals(query: ListQueryDto) {
-    const response = await this.request<ClientifyPaginatedResponse<ClientifyDeal>>(
-      'GET',
-      '/deals/',
-      {
-        params: this.normalizeListParams(query, CLIENTIFY_DEFAULT_FIELDS.deals),
-      },
-    );
+    const response = await this.request<
+      ClientifyPaginatedResponse<ClientifyDeal>
+    >('GET', '/deals/', {
+      params: this.normalizeListParams(query, CLIENTIFY_DEFAULT_FIELDS.deals),
+    });
 
     const normalized = this.normalizePaginated(response);
     return {
@@ -304,7 +386,10 @@ export class ClientifyService {
 
   getDealContacts(id: number, query: ListQueryDto) {
     return this.request('GET', `/deals/${id}/contacts/`, {
-      params: this.normalizeListParams(query, CLIENTIFY_DEFAULT_FIELDS.contacts),
+      params: this.normalizeListParams(
+        query,
+        CLIENTIFY_DEFAULT_FIELDS.contacts,
+      ),
     });
   }
 
@@ -347,6 +432,10 @@ export class ClientifyService {
   async getClientsWithOpenOpportunities(filter: OpportunityFilterDto) {
     const pipelineNeedle = this.toSearchableText(filter.pipeline);
     const stageNeedle = this.toSearchableText(filter.stage);
+    const operationTypeNeedle = filter.operationType
+      ? this.toSearchableText(filter.operationType)
+      : null;
+    const providerPageSize = Math.min(filter.pageSize, 100);
     const resolveCacheKey = this.getCacheKey(filter.pipeline, filter.stage);
     const now = Date.now();
     let resolvedIds = this.pipelineResolveCache.get(resolveCacheKey);
@@ -354,17 +443,20 @@ export class ClientifyService {
     if (!resolvedIds || resolvedIds.expiresAt <= now) {
       const pipelinesResponse = await this.getDealPipelines({
         page: 1,
-        pageSize: filter.pageSize,
+        pageSize: providerPageSize,
       });
 
-      const pipelineResults = Array.isArray((pipelinesResponse as { results?: unknown[] }).results)
-        ? ((pipelinesResponse as { results?: Array<Record<string, unknown>> }).results ?? [])
-        : (Array.isArray(pipelinesResponse)
-            ? (pipelinesResponse as Array<Record<string, unknown>>)
-            : []);
+      const pipelineResults = Array.isArray(
+        (pipelinesResponse as { results?: unknown[] }).results,
+      )
+        ? ((pipelinesResponse as { results?: Array<Record<string, unknown>> })
+            .results ?? [])
+        : Array.isArray(pipelinesResponse)
+          ? (pipelinesResponse as Array<Record<string, unknown>>)
+          : [];
 
-      const matchedPipeline = pipelineResults.find(
-        (pipeline) => this.toSearchableText(pipeline.name).includes(pipelineNeedle),
+      const matchedPipeline = pipelineResults.find((pipeline) =>
+        this.toSearchableText(pipeline.name).includes(pipelineNeedle),
       );
 
       if (!matchedPipeline) {
@@ -412,26 +504,26 @@ export class ClientifyService {
       this.pipelineResolveCache.set(resolveCacheKey, resolvedIds);
     }
 
-    const filteredDeals: Array<ReturnType<typeof ClientifyMapper.toDealSummary>> = [];
+    const filteredDeals: Array<
+      ReturnType<typeof ClientifyMapper.toDealSummary>
+    > = [];
     let page = 1;
     let hasNext = true;
 
     while (hasNext) {
-      const providerPage = await this.request<ClientifyPaginatedResponse<ClientifyDeal>>(
-        'GET',
-        '/deals/',
-        {
-          params: {
-            fields: CLIENTIFY_DEFAULT_FIELDS.deals,
-            page,
-            page_size: filter.pageSize,
-            order_by: '-modified',
-            pipeline_id: resolvedIds.pipelineId,
-            pipeline_stage_id: resolvedIds.pipelineStageId,
-            status: 1,
-          },
+      const providerPage = await this.request<
+        ClientifyPaginatedResponse<ClientifyDeal>
+      >('GET', '/deals/', {
+        params: {
+          fields: CLIENTIFY_DEFAULT_FIELDS.deals,
+          page,
+          page_size: providerPageSize,
+          order_by: '-modified',
+          pipeline_id: resolvedIds.pipelineId,
+          pipeline_stage_id: resolvedIds.pipelineStageId,
+          status: 1,
         },
-      );
+      });
 
       const mappedDeals = (providerPage.results ?? []).map((deal) =>
         ClientifyMapper.toDealSummary(deal),
@@ -442,7 +534,11 @@ export class ClientifyService {
             deal.pipelineId === resolvedIds.pipelineId &&
             deal.pipelineStageId === resolvedIds.pipelineStageId &&
             Number(deal.status) === 1 &&
-            Number.isFinite(deal.contactId),
+            Number.isFinite(deal.contactId) &&
+            (!operationTypeNeedle ||
+              this.toSearchableText(deal.operationType).includes(
+                operationTypeNeedle,
+              )),
         ),
       );
 
@@ -454,11 +550,15 @@ export class ClientifyService {
       new Set(
         filteredDeals
           .map((deal) => deal.contactId)
-          .filter((contactId): contactId is number => Number.isFinite(contactId)),
+          .filter((contactId): contactId is number =>
+            Number.isFinite(contactId),
+          ),
       ),
     );
 
-    const contacts: Array<Awaited<ReturnType<ClientifyService['getContactById']>> | null> = [];
+    const contacts: Array<Awaited<
+      ReturnType<ClientifyService['getContactById']>
+    > | null> = [];
     const batchSize = 10;
     for (let i = 0; i < uniqueContactIds.length; i += batchSize) {
       const chunk = uniqueContactIds.slice(i, i + batchSize);
@@ -476,8 +576,44 @@ export class ClientifyService {
 
     const contactMap = new Map(
       contacts
-        .filter((contact): contact is NonNullable<typeof contact> => Boolean(contact))
+        .filter((contact): contact is NonNullable<typeof contact> =>
+          Boolean(contact),
+        )
         .map((contact) => [contact.id, contact]),
+    );
+
+    const uniqueCompanyIds = Array.from(
+      new Set(
+        [
+          ...Array.from(contactMap.values()).map(
+            (contact) => contact.companyId,
+          ),
+          ...filteredDeals.map((deal) => deal.companyId),
+        ].filter((companyId): companyId is number =>
+          Number.isFinite(companyId),
+        ),
+      ),
+    );
+
+    const companies: Array<ClientifyCompany | null> = [];
+    for (let i = 0; i < uniqueCompanyIds.length; i += batchSize) {
+      const chunk = uniqueCompanyIds.slice(i, i + batchSize);
+      const chunkResults = await Promise.all(
+        chunk.map(async (companyId) => {
+          try {
+            return await this.getCompanyByIdCached(companyId);
+          } catch {
+            return null;
+          }
+        }),
+      );
+      companies.push(...chunkResults);
+    }
+
+    const companyMap = new Map(
+      companies
+        .filter((company): company is ClientifyCompany => Boolean(company))
+        .map((company) => [company.id, company]),
     );
 
     return {
@@ -486,15 +622,63 @@ export class ClientifyService {
         stage: filter.stage,
         pipelineId: resolvedIds.pipelineId,
         pipelineStageId: resolvedIds.pipelineStageId,
+        operationType: filter.operationType ?? null,
       },
       totalDealsMatched: filteredDeals.length,
       totalClientsMatched: contactMap.size,
-      clients: Array.from(contactMap.values()).map((client) => ({
-        ...client,
-        openOpportunities: filteredDeals.filter(
+      clients: Array.from(contactMap.values()).map((client) => {
+        const clientCompanyId =
+          typeof client.companyId === 'number' ? client.companyId : null;
+        const rawOpenOpportunities = filteredDeals.filter(
           (deal) => deal.contactId === client.id,
-        ),
-      })),
+        );
+        const relatedCompanyIds = Array.from(
+          new Set(
+            [
+              clientCompanyId,
+              ...rawOpenOpportunities.map((deal) =>
+                typeof deal.companyId === 'number' ? deal.companyId : null,
+              ),
+            ].filter((companyId): companyId is number => companyId !== null),
+          ),
+        );
+        const fallbackCompanyId =
+          clientCompanyId ??
+          (relatedCompanyIds.length === 1 ? relatedCompanyIds[0] : null);
+        const fallbackCompany =
+          fallbackCompanyId !== null ? companyMap.get(fallbackCompanyId) : null;
+        const openOpportunities = rawOpenOpportunities.map((deal) => {
+          const dealCompanyId =
+            typeof deal.companyId === 'number' ? deal.companyId : null;
+          const dealCompany =
+            dealCompanyId !== null ? companyMap.get(dealCompanyId) : null;
+
+          return {
+            ...deal,
+            companyName: dealCompany?.name ?? null,
+            nit: this.extractNitFromCompany(dealCompany),
+          };
+        });
+        const operationTypes = Array.from(
+          new Set(
+            openOpportunities
+              .map((deal) => deal.operationType)
+              .filter((operationType): operationType is string =>
+                Boolean(operationType),
+              ),
+          ),
+        );
+
+        return {
+          ...client,
+          companyId: client.companyId ?? fallbackCompany?.id ?? null,
+          companyName: client.companyName ?? fallbackCompany?.name ?? null,
+          nit: this.extractNitFromCompany(fallbackCompany),
+          operationType: operationTypes.length === 1 ? operationTypes[0] : null,
+          operationTypes,
+          openOpportunities,
+        };
+      }),
     };
   }
 }

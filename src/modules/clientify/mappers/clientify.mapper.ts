@@ -1,6 +1,38 @@
-import { ClientifyContact, ClientifyDeal } from '../interfaces/clientify.interface';
+import {
+  ClientifyContact,
+  ClientifyCustomField,
+  ClientifyDeal,
+} from '../interfaces/clientify.interface';
 
 export class ClientifyMapper {
+  private static toSearchableText(value: unknown) {
+    return String(value ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  private static extractCustomFieldValue(
+    customFields: ClientifyCustomField[] | undefined,
+    fieldName: string,
+  ) {
+    const matchedField = (customFields ?? []).find(
+      (customField) =>
+        this.toSearchableText(customField.field) ===
+        this.toSearchableText(fieldName),
+    );
+
+    if (!matchedField) {
+      return null;
+    }
+
+    const { value } = matchedField;
+    return ['string', 'number', 'boolean'].includes(typeof value)
+      ? String(value).trim()
+      : null;
+  }
+
   static toContactSummary(contact: ClientifyContact) {
     return {
       id: contact.id,
@@ -22,6 +54,12 @@ export class ClientifyMapper {
   }
 
   static toDealSummary(deal: ClientifyDeal) {
+    const customFields = deal.custom_fields ?? [];
+    const operationType = this.extractCustomFieldValue(
+      customFields,
+      'Tipo de operación',
+    );
+
     return {
       id: deal.id,
       name: deal.name ?? '',
@@ -40,7 +78,8 @@ export class ClientifyMapper {
       contactId: deal.contact_id ?? null,
       companyId: deal.company_id ?? null,
       dealSource: deal.deal_source ?? null,
-      customFields: deal.custom_fields ?? [],
+      operationType,
+      customFields,
     };
   }
 }

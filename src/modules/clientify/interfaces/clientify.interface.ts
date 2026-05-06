@@ -29,6 +29,36 @@ export interface ClientifyContact extends ClientifyBaseEntity {
   summary?: string;
 }
 
+export interface ClientifyCustomField {
+  id?: number;
+  field_id?: number;
+  field?: string;
+  value?: unknown;
+  field_type?: number;
+  field_type_display?: string;
+}
+
+export interface ClientifyCompany extends ClientifyBaseEntity {
+  name?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  industry?: string;
+  company_size?: string | number;
+  country?: string;
+  city?: string;
+  state?: string;
+  status?: string;
+  created?: string;
+  custom_fields?: ClientifyCustomField[];
+  taxpayer_identification_number?: string | number;
+  nit?: string | number;
+  tax_id?: string | number;
+  identification?: string | number;
+  document?: string | number;
+  document_number?: string | number;
+}
+
 export interface ClientifyDeal extends ClientifyBaseEntity {
   name?: string;
   amount?: string;
@@ -46,5 +76,5 @@ export interface ClientifyDeal extends ClientifyBaseEntity {
   contact_id?: number;
   company_id?: number;
   deal_source?: string;
-  custom_fields?: unknown[];
+  custom_fields?: ClientifyCustomField[];
 }
