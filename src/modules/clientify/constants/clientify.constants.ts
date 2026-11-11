@@ -3,15 +3,16 @@ export const CLIENTIFY_DEFAULT_FIELDS = {
   users:
     'id,first_name,last_name,username,full_name,email,company_id,company_name',
   contacts:
-    'id,first_name,last_name,full_name,email,phone,company_id,company_name,status,title,created,remarks,summary',
+    'id,owner_id,owner,owner_name,first_name,last_name,full_name,email,phone,company_id,company_name,status,title,contact_source,created,modified,last_contact,remarks,summary',
   contactDetail:
-    'id,first_name,last_name,full_name,email,phone,company_id,company_name,status,title,created,remarks,summary,description,custom_fields,tags',
+    'id,owner_id,owner,owner_name,first_name,last_name,full_name,email,phone,company_id,company_name,status,title,contact_source,created,modified,last_contact,remarks,summary,description,custom_fields,tags',
   deals:
-    'id,name,amount,currency,status,status_desc,probability,pipeline_id,pipeline,pipeline_stage_id,pipeline_stage,pipeline_stage_desc,expected_closed_date,actual_closed_date,contact_id,company_id,deal_source,custom_fields',
+    'id,owner_id,owner,owner_name,name,amount,amount_user,currency,contact_id,contact,contact_name,contact_email,contact_phone,contact_medium,contact_source,company_id,company,company_name,source,deal_source_id,deal_source,status,status_desc,probability,probability_desc,pipeline_id,pipeline,pipeline_desc,pipeline_stage_id,pipeline_stage,pipeline_stage_desc,created,modified,expected_closed_date,actual_closed_date,expected_closed_date_iso,actual_closed_date_iso,remarks,lost_reason,won_deal_reason,relevant_closed_date,amount_currency,custom_fields',
   companies:
-    'id,name,email,phone,website,industry,company_size,country,city,state,status,created',
+    'id,owner_id,owner,owner_name,name,email,phone,website,industry,company_size,country,city,state,status,created,modified,last_contact',
   companyDetailWithCustomFields:
-    'id,name,email,phone,website,industry,company_size,country,city,state,status,created,taxpayer_identification_number,custom_fields',
+    'id,owner_id,owner,owner_name,name,email,phone,website,industry,company_size,country,city,state,status,created,modified,last_contact,taxpayer_identification_number,custom_fields',
 };
 
 export const CLIENTIFY_TIMEOUT_DEFAULT = 15000;
+export const CLIENTIFY_V1_BASE_URL_DEFAULT = 'https://api.clientify.net/v1';

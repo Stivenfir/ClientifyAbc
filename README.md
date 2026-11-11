@@ -66,6 +66,8 @@ La API interna nunca expone `CLIENTIFY_TOKEN` en responses.
 - `GET /contacts/:id/tasks`
 - `GET /contacts/:id/custom-fields`
 - `GET /contacts-with-deals`
+- `GET /clients/by-opportunity/:opportunityId`
+- `GET /clients/by-identification/:identification`
 - `GET /clients/open-opportunities?pipeline=mudanzas&stage=estimado`
 
 ### Empresas
@@ -281,6 +283,26 @@ curl --location 'http://localhost:3000/api/clientify/clients/open-opportunities?
 
 > Este endpoint resuelve primero `pipeline` y `stage` por nombre en `/deals/pipelines` y luego filtra deals por IDs reales + `status = 1` (abierta) + `contactId` no nulo.
 
+### 7.16 Cliente por número de oportunidad para Power Apps
+
+```bash
+curl --location 'http://localhost:3001/api/clientify/clients/by-opportunity/26977070' \
+--header 'x-api-key: <API_KEY>'
+```
+
+También admite el nombre de parámetro utilizado por el flujo anterior, aunque
+su valor corresponde al número de oportunidad:
+
+```bash
+curl --location 'http://localhost:3001/api/clientify/clients/by-opportunity?contacto_id=26977070' \
+--header 'x-api-key: <API_KEY>'
+```
+
+La respuesta consolida la oportunidad, su contacto y su empresa en los campos
+esperados por Power Apps: `NombreCuenta`, `NombreContacto`, `correoContacto`,
+`telefonoContacto`, `paisContacto`, `modo`, `lineaServicio`, `modalidad`,
+`documento` y `lineaNegocio`.
+
 ---
 
 ## 8) Ejemplos de response normalizada
@@ -340,3 +362,9 @@ curl --location 'http://localhost:3000/api/clientify/clients/open-opportunities?
 ## 9) Postman
 
 También puedes importar el archivo `postman_collection.json` incluido en el repo.
+
+GET http://localhost:3001/api/clientify/contacts
+
+GET http://localhost:3001/api/clientify/companies
+
+GET http://localhost:3001/api/clientify/deals

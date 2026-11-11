@@ -42,6 +42,46 @@ export class ClientifyController {
     return this.clientifyService.getUsers(query);
   }
 
+  @Get('v1/users')
+  getV1Users(@Query() query: ListQueryDto) {
+    return this.clientifyService.getV1Users(query);
+  }
+
+  @Get('v1/calls')
+  getV1Calls(@Query() query: ListQueryDto) {
+    return this.clientifyService.getV1Calls(query);
+  }
+
+  @Get('v1/calls/:id')
+  getV1CallById(@Param('id', ParseIntPipe) id: number) {
+    return this.clientifyService.getV1CallById(id);
+  }
+
+  @Get('v1/tasks')
+  getV1Tasks(@Query() query: ListQueryDto) {
+    return this.clientifyService.getV1Tasks(query);
+  }
+
+  @Get('v1/tasks/types')
+  getV1TaskTypes(@Query() query: ListQueryDto) {
+    return this.clientifyService.getV1TaskTypes(query);
+  }
+
+  @Get('v1/tasks/stages')
+  getV1TaskStages(@Query() query: ListQueryDto) {
+    return this.clientifyService.getV1TaskStages(query);
+  }
+
+  @Get('v1/deals/pipelines')
+  getV1DealPipelines(@Query() query: ListQueryDto) {
+    return this.clientifyService.getV1DealPipelines(query);
+  }
+
+  @Get('v1/deals/pipelines/stages')
+  getV1DealPipelineStages(@Query() query: ListQueryDto) {
+    return this.clientifyService.getV1DealPipelineStages(query);
+  }
+
   @Get('contacts')
   getContacts(@Query() query: ListQueryDto) {
     return this.clientifyService.getContacts(query);
@@ -98,6 +138,42 @@ export class ClientifyController {
   })
   getClientsWithOpenOpportunities(@Query() query: OpportunityFilterDto) {
     return this.clientifyService.getClientsWithOpenOpportunities(query);
+  }
+
+  @Get('clients/by-opportunity')
+  @ApiOperation({
+    summary: 'Consulta para Power Apps usando el número de oportunidad',
+  })
+  @ApiQuery({ name: 'opportunity_id', required: false })
+  @ApiQuery({
+    name: 'contacto_id',
+    required: false,
+    description: 'Alias compatible con el flujo anterior',
+  })
+  getClientByOpportunityQuery(
+    @Query('opportunity_id') opportunityId?: string,
+    @Query('contacto_id') legacyOpportunityId?: string,
+  ) {
+    return this.clientifyService.getClientByOpportunity(
+      opportunityId ?? legacyOpportunityId ?? '',
+    );
+  }
+
+  @Get('clients/by-opportunity/:opportunityId')
+  @ApiOperation({
+    summary: 'Consulta consolidada por ID de oportunidad de Clientify',
+  })
+  getClientByOpportunity(@Param('opportunityId') opportunityId: string) {
+    return this.clientifyService.getClientByOpportunity(opportunityId);
+  }
+
+  @Get('clients/by-identification/:identification')
+  @ApiOperation({
+    summary:
+      'Consulta consolidada de contacto, empresa y oportunidad por identificación',
+  })
+  getClientByIdentification(@Param('identification') identification: string) {
+    return this.clientifyService.getClientByIdentification(identification);
   }
 
   @Get('companies')

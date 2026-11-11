@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import {
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -25,6 +26,10 @@ class EnvironmentVariables {
   CLIENTIFY_TOKEN!: string;
 
   @IsOptional()
+  @IsString()
+  CLIENTIFY_V1_BASE_URL?: string;
+
+  @IsOptional()
   @IsInt()
   @Min(1000)
   @Max(60000)
@@ -33,6 +38,56 @@ class EnvironmentVariables {
   @IsOptional()
   @IsIn(['v1', 'v2'])
   CLIENTIFY_DEFAULT_VERSION?: 'v1' | 'v2';
+
+  @IsOptional()
+  @IsBoolean()
+  CLIENTIFY_SYNC_ENABLED?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  CLIENTIFY_SYNC_CRON_ENABLED?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  CLIENTIFY_SYNC_PAGE_SIZE?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(60000)
+  CLIENTIFY_SYNC_PAGE_DELAY_MS?: number;
+
+  @IsOptional()
+  @IsString()
+  SQL_SERVER_HOST?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  SQL_SERVER_PORT?: number;
+
+  @IsOptional()
+  @IsString()
+  SQL_SERVER_USER?: string;
+
+  @IsOptional()
+  @IsString()
+  SQL_SERVER_PASSWORD?: string;
+
+  @IsOptional()
+  @IsString()
+  SQL_SERVER_DATABASE?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  SQL_SERVER_ENCRYPT?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  SQL_SERVER_TRUST_SERVER_CERTIFICATE?: boolean;
 }
 
 export function validateEnv(config: Record<string, unknown>) {

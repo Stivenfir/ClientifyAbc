@@ -1,7 +1,7 @@
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { ClientifyService } from './clientify.service';
 
 describe('ClientifyService', () => {
@@ -25,11 +25,17 @@ describe('ClientifyService', () => {
           useValue: {
             get: jest
               .fn()
-              .mockImplementation((key: string) =>
-                key === 'CLIENTIFY_BASE_URL'
-                  ? 'https://app.clientify.net/api/v2'
-                  : 'token',
-              ),
+              .mockImplementation((key: string) => {
+                if (key === 'CLIENTIFY_BASE_URL') {
+                  return 'https://app.clientify.net/api/v2';
+                }
+
+                if (key === 'CLIENTIFY_V1_BASE_URL') {
+                  return 'https://api.clientify.net/v1';
+                }
+
+                return 'token';
+              }),
           },
         },
       ],
@@ -40,6 +46,193 @@ describe('ClientifyService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('uses the v1 base url for calls resources', async () => {
+    httpService.request.mockReturnValueOnce(
+      of({
+        data: {
+          next: null,
+          results: [],
+        },
+      }),
+    );
+
+    await service.getV1Calls({
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(httpService.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://api.clientify.net/v1/calls/',
+      }),
+    );
+  });
+
+  it('retries transient Clientify network errors before failing', async () => {
+    jest
+      .spyOn(service as never, 'sleep')
+      .mockResolvedValue(undefined as never);
+
+    httpService.request
+      .mockReturnValueOnce(
+        throwError(() => ({
+          code: 'ECONNABORTED',
+          message: 'timeout of 30000ms exceeded',
+        })),
+      )
+      .mockReturnValueOnce(
+        of({
+          data: {
+            next: null,
+            results: [],
+          },
+        }),
+      );
+
+    const response = await service.getContacts({
+      page: 1,
+      pageSize: 100,
+    });
+
+    expect(response.results).toEqual([]);
+    expect(httpService.request).toHaveBeenCalledTimes(2);
+  });
+
+  it('builds the Power Apps response from contact, company and deal data', async () => {
+    httpService.request
+      .mockReturnValueOnce(
+        of({
+          data: {
+            results: [
+              {
+                id: 142939547,
+                first_name: 'Pepito',
+                last_name: 'Perez',
+                full_name: 'Pepito Perez',
+                email: 'pepito@example.com',
+                phone: '57123',
+                company_id: 11246515,
+                company_name: 'EMBAJADA BRITANICA',
+                addresses: [{ country: 'Colombia' }],
+                custom_fields: [
+                  { field: 'DNI trasladado', value: '123456' },
+                  { field: 'Modalidad', value: 'Puerta a puerta' },
+                ],
+              },
+            ],
+          },
+        }),
+      )
+      .mockReturnValueOnce(of({ data: { results: [] } }))
+      .mockReturnValueOnce(
+        of({
+          data: {
+            id: 11246515,
+            name: 'EMBAJADA BRITANICA',
+            taxpayer_identification_number: '800090980-1',
+            custom_fields: [
+              { field: 'Línea de servicio', value: 'Mudanzas' },
+            ],
+          },
+        }),
+      )
+      .mockReturnValueOnce(
+        of({
+          data: {
+            results: [
+              {
+                id: 26977070,
+                name: 'Mudanza internacional',
+                modified: '2026-11-10T10:00:00-05:00',
+                custom_fields: [
+                  { field: 'Modo de transporte', value: 'Aéreo' },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+
+    const response = await service.getClientByIdentification('123-456');
+
+    expect(response).toEqual({
+      nombrecuenta: 'EMBAJADA BRITANICA',
+      nombrecontacto: 'Pepito Perez',
+      Correocontacto: 'pepito@example.com',
+      telefonocontacto: '57123',
+      paiscontacto: 'Colombia',
+      modo: 'Aéreo',
+      lineaservicio: 'Mudanzas',
+      modalidad: 'Puerta a puerta',
+      documento: '123456',
+    });
+  });
+
+  it('builds the exact Power Apps schema from an opportunity id', async () => {
+    httpService.request
+      .mockReturnValueOnce(
+        of({
+          data: {
+            id: 26977070,
+            name: 'Mudanza internacional',
+            contact_id: 142939547,
+            company_id: 11246515,
+            custom_fields: [
+              { field: 'Modo de transporte', value: 'Aéreo' },
+              { field: 'Línea de servicio', value: 'Mudanzas' },
+              { field: 'Modalidad', value: 'Puerta a puerta' },
+              {
+                field: 'Línea de negocio',
+                value: ['Mudanzas internacionales', 'Relocation'],
+              },
+            ],
+          },
+        }),
+      )
+      .mockReturnValueOnce(
+        of({
+          data: {
+            id: 142939547,
+            first_name: 'Pepito',
+            last_name: 'Perez',
+            full_name: 'Pepito Perez',
+            email: 'pepito@example.com',
+            phone: '57123',
+            company_id: 11246515,
+            addresses: [{ country: 'Colombia' }],
+            custom_fields: [
+              { field: 'DNI trasladado', value: '123456' },
+            ],
+          },
+        }),
+      )
+      .mockReturnValueOnce(
+        of({
+          data: {
+            id: 11246515,
+            name: 'EMBAJADA BRITANICA',
+            taxpayer_identification_number: '800090980-1',
+            custom_fields: [],
+          },
+        }),
+      );
+
+    const response = await service.getClientByOpportunity('26977070');
+
+    expect(response).toEqual({
+      NombreCuenta: 'EMBAJADA BRITANICA',
+      NombreContacto: 'Pepito Perez',
+      correoContacto: 'pepito@example.com',
+      telefonoContacto: '57123',
+      paisContacto: 'Colombia',
+      modo: 'Aéreo',
+      lineaServicio: 'Mudanzas',
+      modalidad: 'Puerta a puerta',
+      documento: '123456',
+      lineaNegocio: ['Mudanzas internacionales', 'Relocation'],
+    });
   });
 
   it('maps operationType from deal custom fields into the open opportunities response', async () => {

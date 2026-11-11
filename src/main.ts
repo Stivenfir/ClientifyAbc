@@ -32,7 +32,7 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
 
-  logger.log(`API corriendo en http://localhost:${port}/api`);
+  logger.log(`API corriendo en http://localhost:${port}/api`); //endpoint de la api
   logger.log(`Swagger en http://localhost:${port}/docs`);
 }
 
