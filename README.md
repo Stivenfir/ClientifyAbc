@@ -300,6 +300,7 @@ curl --location 'http://localhost:3001/api/clientify/clients/by-opportunity?cont
 
 La respuesta consolida la oportunidad, su contacto y su empresa en los campos
 esperados por Power Apps: `NombreCuenta`, `NombreContacto`, `correoContacto`,
+`correo_comercial`,
 `telefonoContacto`, `paisContacto`, `modo`, `lineaServicio`, `modalidad`,
 `documento` y `lineaNegocio`.
 

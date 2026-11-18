@@ -177,6 +177,7 @@ describe('ClientifyService', () => {
           data: {
             id: 26977070,
             name: 'Mudanza internacional',
+            owner_id: 9410,
             contact_id: 142939547,
             company_id: 11246515,
             custom_fields: [
@@ -217,6 +218,15 @@ describe('ClientifyService', () => {
             custom_fields: [],
           },
         }),
+      )
+      .mockReturnValueOnce(
+        of({
+          data: {
+            id: 9410,
+            full_name: 'Comercial ABC',
+            email: 'comercial@abcrepecev.com',
+          },
+        }),
       );
 
     const response = await service.getClientByOpportunity('26977070');
@@ -225,6 +235,7 @@ describe('ClientifyService', () => {
       NombreCuenta: 'EMBAJADA BRITANICA',
       NombreContacto: 'Pepito Perez',
       correoContacto: 'pepito@example.com',
+      correo_comercial: 'comercial@abcrepecev.com',
       telefonoContacto: '57123',
       paisContacto: 'Colombia',
       modo: 'Aéreo',

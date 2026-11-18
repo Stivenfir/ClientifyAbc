@@ -628,6 +628,25 @@ export class ClientifyService {
     const company = companyId
       ? await this.getCompanyByIdCached(companyId)
       : null;
+    const commercialOwnerId =
+      deal.owner_id ?? contact?.owner_id ?? company?.owner_id;
+    let commercial: ClientifyV1User | null = null;
+
+    if (commercialOwnerId) {
+      try {
+        commercial = await this.request<ClientifyV1User>(
+          'GET',
+          `/users/${commercialOwnerId}/`,
+          { params: { fields: CLIENTIFY_DEFAULT_FIELDS.users } },
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'error desconocido';
+        this.logger.warn(
+          `No fue posible consultar el comercial ${commercialOwnerId}: ${message}`,
+        );
+      }
+    }
     const customFieldSources = [
       deal.custom_fields,
       contact?.custom_fields,
@@ -668,6 +687,7 @@ export class ClientifyService {
             'Correo contacto',
           ]),
       ),
+      correo_comercial: this.toResponseString(commercial?.email),
       telefonoContacto: this.toResponseString(
         contact?.phone ??
           contact?.phones?.[0]?.phone ??
