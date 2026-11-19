@@ -246,6 +246,47 @@ describe('ClientifyService', () => {
     });
   });
 
+  it('uses the opportunity owner when Clientify returns the commercial email there', async () => {
+    httpService.request
+      .mockReturnValueOnce(
+        of({
+          data: {
+            id: 33508600,
+            owner_id: 240960,
+            owner: 'phenao@abcrepecev.com',
+            owner_name: 'Claudia Patricia Henao Bernate',
+            contact_id: 142939547,
+            company_id: 11246515,
+            custom_fields: [],
+          },
+        }),
+      )
+      .mockReturnValueOnce(
+        of({
+          data: {
+            id: 142939547,
+            full_name: 'Viviana Ramirez',
+            company_id: 11246515,
+            custom_fields: [],
+          },
+        }),
+      )
+      .mockReturnValueOnce(
+        of({
+          data: {
+            id: 11246515,
+            name: 'ELETRODIESEL COLOMBIA SAS',
+            custom_fields: [],
+          },
+        }),
+      );
+
+    const response = await service.getClientByOpportunity('33508600');
+
+    expect(response.correo_comercial).toBe('phenao@abcrepecev.com');
+    expect(httpService.request).toHaveBeenCalledTimes(3);
+  });
+
   it('maps operationType from deal custom fields into the open opportunities response', async () => {
     jest.spyOn(service, 'getDealPipelines').mockResolvedValue({
       results: [
